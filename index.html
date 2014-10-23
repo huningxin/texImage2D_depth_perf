@@ -11,7 +11,8 @@ void main() {
 precision mediump float;
 uniform vec2 u_resolution;
 uniform sampler2D u_tex;
-const int ITERATIONS = 1000;
+uniform int use_rgb_8;
+const int ITERATIONS = 1;
 float decodeDepthFromRGBA_4_4_4_4(vec4 rgba) {
     return 15. * rgba.r * 4096. + 15. * rgba.g * 256. +  15. * rgba.b * 16. + 15. * rgba.a;
 }
@@ -23,17 +24,28 @@ void main() {
     vec4 floatColor = texture2D(u_tex, texCoord);
     float z = 0.;
     for (int i = 0; i < ITERATIONS; i++) {
-        //z = z * 0.01 + decodeDepthFromRGBA_4_4_4_4(floatColor.rgba);
-        z = z * 0.01 + decodeDepthFromRGB_8(floatColor.rgba);
+        if (use_rgb_8 == 1) {
+            z = z * 0.01 + decodeDepthFromRGB_8(floatColor.rgba);
+        } else {
+            z = z * 0.01 + decodeDepthFromRGBA_4_4_4_4(floatColor.rgba);
+        }
     }
     gl_FragColor = vec4(z, z, z, 1);  
 }
 </script>
-<p>Results:
-<p id="res">
+<div id="fps">FPS:</div>
+<div>
+<input type="checkbox" id="use_rgb_8">Check to use RGB/UNSIGNED_BYTE, otherwise to use RGBA/UNSIGNED_SHORT_4_4_4_4</input>
+</div>
+<div>
+<button id="startBtn">Start</button>
+<button id="stopBtn">Stop</button>
+</div>
 <p>Canvas:
 <canvas id="canvas" width="1920" height="1080"></canvas>
 <script>
+var use_rgb_8 = 0;
+
 var canvas = document.getElementById("canvas");
 var gl = getWebGLContext(canvas);
 if (!gl) {
@@ -53,6 +65,10 @@ var resolutionLocation = gl.getUniformLocation(
     program, "u_resolution");
 gl.uniform2f(
     resolutionLocation, canvas.width, canvas.height);
+var isRgb8Location = gl.getUniformLocation(
+    program, "use_rgb_8");
+gl.uniform1i(
+    isRgb8Location, use_rgb_8);
 
 var buffer = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -78,22 +94,25 @@ gl.texParameteri(
 gl.texParameteri(
     gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-function newDepthData() {
-    // new depth image
+function newDepthData(buffer) {
     for (var i = 0; i < height * width; ++i) {
-        dexels[i] = i * Math.random();
+        buffer[i] = i * Math.random();
     }
 }
 
-var rgb_buffer = new Uint8Array(width * height * 3);
-var uploadRGB_8 = function () {
-    newDepthData();
+function PrepareRGB8Data(rgb_buffer, dexels) {
     var uint8_view = new Uint8Array(dexels.buffer);
     for (var i = 0; i < height * width; ++i) {
         rgb_buffer[i * 3] = uint8_view[i * 2];
         rgb_buffer[i * 3 + 1] = uint8_view[i * 2 + 1];
         rgb_buffer[i * 3 + 2] = 0;
     }
+}
+
+var rgb_buffer = new Uint8Array(width * height * 3);
+function uploadRGB_8() {
+    newDepthData(dexels);
+    PrepareRGB8Data(rgb_buffer, dexels);
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGB, 
         width, height, 0, gl.RGB, gl.UNSIGNED_BYTE, 
@@ -101,8 +120,8 @@ var uploadRGB_8 = function () {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
-var uploadRGBA_4_4_4_4 = function() {
-    newDepthData();
+function uploadRGBA_4_4_4_4() {
+    newDepthData(dexels);
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGBA, 
         width, height, 0, gl.RGBA, gl.UNSIGNED_SHORT_4_4_4_4, 
@@ -110,12 +129,56 @@ var uploadRGBA_4_4_4_4 = function() {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 };
 
-var tick = function() {
-    //uploadRGBA_4_4_4_4();
-    uploadRGB_8();
+var lastCalledTime;
+var fps;
+var frames = 0;
+var running = false;
+function tick() {
+    if (running == false)
+        return;
+    if (use_rgb_8 == 1) {
+        uploadRGB_8();
+    } else {
+        uploadRGBA_4_4_4_4();
+    }
     requestAnimationFrame(tick);
+    if(!lastCalledTime) {
+        lastCalledTime = Date.now();
+        fps = 0;
+    } else {
+        var delta = (new Date().getTime() - lastCalledTime)/1000;
+        if (delta > 0.5) {
+            lastCalledTime = Date.now();
+            fps = frames/delta;
+            document.getElementById('fps').innerHTML = "FPS: " + fps.toFixed(1);
+            frames = 0;
+        } else {
+            frames++;
+        }
+    }
 };
 
-requestAnimationFrame(tick);
+document.getElementById('fps').innerHTML = "Press `start` button to start..."
+
+var checkbox = document.getElementById("use_rgb_8");
+var startBtn = document.getElementById("startBtn");
+var stopBtn = document.getElementById("stopBtn");
+startBtn.addEventListener('click', function (e) {
+    if (running == true)
+        return;
+    if (checkbox.checked)
+        use_rgb_8 = 1;
+    else
+        use_rgb_8 = 0;
+    running = true;
+    requestAnimationFrame(tick);
+});
+
+stopBtn.addEventListener('click', function (e) {
+    running = false;
+    document.getElementById('fps').innerHTML = "Press `start` button to start..."
+});
+
+start();
 </script>
 </html>
