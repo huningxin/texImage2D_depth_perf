@@ -30,12 +30,41 @@ void main() {
             z = z * 0.01 + decodeDepthFromRGBA_4_4_4_4(floatColor.rgba);
         }
     }
-    gl_FragColor = vec4(z, z, z, 1);  
+    gl_FragColor = vec4(z, z, z, 1);
+}
+</script>
+<script id="2d-fragment-shader-harness" type="x-shader/x-fragment">
+precision mediump float;
+uniform vec2 u_resolution;
+uniform sampler2D u_tex;
+uniform int use_rgb_8;
+const int ITERATIONS = 500;
+float decodeDepthFromRGBA_4_4_4_4(vec4 rgba) {
+    return 15. * rgba.r * 4096. + 15. * rgba.g * 256. +  15. * rgba.b * 16. + 15. * rgba.a;
+}
+float decodeDepthFromRGB_8(vec4 rgba) {
+    return 255. * rgba.r * 256. + 255. * rgba.g;
+}
+void main() {
+    vec2 texCoord = gl_FragCoord.xy / u_resolution;
+    vec4 floatColor = texture2D(u_tex, texCoord);
+    float z = 0.;
+    for (int i = 0; i < ITERATIONS; i++) {
+        if (use_rgb_8 == 1) {
+            z = z * 0.01 + decodeDepthFromRGB_8(floatColor.rgba);
+        } else {
+            z = z * 0.01 + decodeDepthFromRGBA_4_4_4_4(floatColor.rgba);
+        }
+    }
+    gl_FragColor = vec4(z, z, z, 1);
 }
 </script>
 <div id="fps">FPS:</div>
 <div>
-<input type="checkbox" id="use_rgb_8">Check to use RGB/UNSIGNED_BYTE, otherwise to use RGBA/UNSIGNED_SHORT_4_4_4_4</input>
+<input type="checkbox" id="use_rgb_8">Check to use RGB/UNSIGNED_BYTE, otherwise to use RGBA/UNSIGNED_SHORT_4_4_4_4.</input>
+</div>
+<div>
+<input type="checkbox" id="harness_shader">Check to harness uint16 reconstruction in fragment shader by running 500 iterations, otherwise run 1 iteration.</input>
 </div>
 <div>
 <button id="startBtn">Start</button>
@@ -45,6 +74,10 @@ void main() {
 <canvas id="canvas" width="1920" height="1080"></canvas>
 <script>
 var use_rgb_8 = 0;
+var width = 1920;
+var height = 1080;
+var dexels = new Uint16Array(width * height);
+var rgb_buffer = new Uint8Array(width * height * 3);
 
 var canvas = document.getElementById("canvas");
 var gl = getWebGLContext(canvas);
@@ -52,67 +85,74 @@ if (!gl) {
     alert("no WebGL");
 }
 
-vertexShader = createShaderFromScriptElement(
-    gl, "2d-vertex-shader");
-fragmentShader = createShaderFromScriptElement(
-    gl, "2d-fragment-shader");
-program = createProgram(gl, [vertexShader, fragmentShader]);
-gl.useProgram(program);
+function initWebGL() {
+    var vertexShader = createShaderFromScriptElement(
+        gl, "2d-vertex-shader");
+    var fragmentShader;
+    if (harnessCheckbox.checked)
+        fragmentShader= createShaderFromScriptElement(
+            gl, "2d-fragment-shader-harness");
+    else
+        fragmentShader= createShaderFromScriptElement(
+            gl, "2d-fragment-shader");
+    var program = createProgram(gl, [vertexShader, fragmentShader]);
+    gl.useProgram(program);
 
-var positionLocation = gl.getAttribLocation(
-    program, "a_position");
-var resolutionLocation = gl.getUniformLocation(
-    program, "u_resolution");
-gl.uniform2f(
-    resolutionLocation, canvas.width, canvas.height);
-var isRgb8Location = gl.getUniformLocation(
-    program, "use_rgb_8");
-gl.uniform1i(
-    isRgb8Location, use_rgb_8);
+    var positionLocation = gl.getAttribLocation(
+        program, "a_position");
+    var resolutionLocation = gl.getUniformLocation(
+        program, "u_resolution");
+    gl.uniform2f(
+        resolutionLocation, canvas.width, canvas.height);
+    var isRgb8Location = gl.getUniformLocation(
+        program, "use_rgb_8");
+    gl.uniform1i(
+        isRgb8Location, use_rgb_8);
 
-var buffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-     -1, -1, 1, -1, -1, 1,
-     -1,  1, 1, -1,  1, 1]), gl.STATIC_DRAW);
-gl.enableVertexAttribArray(positionLocation);
-gl.vertexAttribPointer(
-    positionLocation, 2, gl.FLOAT, false, 0, 0);
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+         -1, -1, 1, -1, -1, 1,
+         -1,  1, 1, -1,  1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(
+        positionLocation, 2, gl.FLOAT, false, 0, 0);
 
-var tex = gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D, tex);
-var width = 1920;
-var height = 1080;
-var dexels = new Uint16Array(width * height);
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
 
-gl.texParameteri(
-    gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-gl.texParameteri(
-    gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-gl.texParameteri(
-    gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-gl.texParameteri(
-    gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(
+        gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(
+        gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(
+        gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(
+        gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+}
 
-function newDepthData(buffer) {
+function getDepthValue() {
+    return 3000 * Math.random() & 0xFF;
+}
+
+// buffer is Uint16Array
+function newDepthRGBA_4_4_4_4(buffer) {
     for (var i = 0; i < height * width; ++i) {
-        buffer[i] = i * Math.random();
+        buffer[i] = getDepthValue();
     }
 }
 
-function PrepareRGB8Data(rgb_buffer, dexels) {
-    var uint8_view = new Uint8Array(dexels.buffer);
+// buffer is Uint8Array
+function newDepthDataRGB_8(buffer) {
     for (var i = 0; i < height * width; ++i) {
-        rgb_buffer[i * 3] = uint8_view[i * 2];
-        rgb_buffer[i * 3 + 1] = uint8_view[i * 2 + 1];
-        rgb_buffer[i * 3 + 2] = 0;
+        var d = getDepthValue();
+        buffer[i * 3] = d & 0xFF;
+        buffer[i * 3 + 1] = (d >> 8) & 0xFF;
     }
 }
 
-var rgb_buffer = new Uint8Array(width * height * 3);
 function uploadRGB_8() {
-    newDepthData(dexels);
-    PrepareRGB8Data(rgb_buffer, dexels);
+    newDepthDataRGB_8(rgb_buffer);
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGB, 
         width, height, 0, gl.RGB, gl.UNSIGNED_BYTE, 
@@ -121,7 +161,7 @@ function uploadRGB_8() {
 }
 
 function uploadRGBA_4_4_4_4() {
-    newDepthData(dexels);
+    newDepthRGBA_4_4_4_4(dexels);
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGBA, 
         width, height, 0, gl.RGBA, gl.UNSIGNED_SHORT_4_4_4_4, 
@@ -160,16 +200,18 @@ function tick() {
 
 document.getElementById('fps').innerHTML = "Press `start` button to start..."
 
-var checkbox = document.getElementById("use_rgb_8");
+var useRgb8checkbox = document.getElementById("use_rgb_8");
+var harnessCheckbox = document.getElementById("harness_shader");
 var startBtn = document.getElementById("startBtn");
 var stopBtn = document.getElementById("stopBtn");
 startBtn.addEventListener('click', function (e) {
     if (running == true)
         return;
-    if (checkbox.checked)
+    if (useRgb8checkbox.checked)
         use_rgb_8 = 1;
     else
         use_rgb_8 = 0;
+    initWebGL();
     running = true;
     requestAnimationFrame(tick);
 });
