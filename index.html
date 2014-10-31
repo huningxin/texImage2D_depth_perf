@@ -143,12 +143,12 @@ function tick() {
     }
     requestAnimationFrame(tick);
     if(!lastCalledTime) {
-        lastCalledTime = Date.now();
+        lastCalledTime = performance.now();
         fps = 0;
     } else {
-        var delta = (new Date().getTime() - lastCalledTime)/1000;
+        var delta = (performance.now() - lastCalledTime)/1000;
         if (delta > 0.5) {
-            lastCalledTime = Date.now();
+            lastCalledTime = performance.now();
             fps = frames/delta;
             document.getElementById('fps').innerHTML = "FPS: " + fps.toFixed(1);
             frames = 0;
@@ -179,6 +179,5 @@ stopBtn.addEventListener('click', function (e) {
     document.getElementById('fps').innerHTML = "Press `start` button to start..."
 });
 
-start();
 </script>
 </html>
