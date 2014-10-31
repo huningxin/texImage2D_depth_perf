@@ -16,8 +16,11 @@ const int ITERATIONS = 1;
 float decodeDepthFromRGBA_4_4_4_4(vec4 rgba) {
     return 15. * rgba.r * 4096. + 15. * rgba.g * 256. +  15. * rgba.b * 16. + 15. * rgba.a;
 }
-float decodeDepthFromRGB_8(vec4 rgba) {
-    return 255. * rgba.r * 256. + 255. * rgba.g;
+float decodeDepthFromRGB_5_6_5(vec3 rgb) {
+    return 31. * rgb.r * 2048. + 63. * rgb.g * 32. +  31. * rgb.b;
+}
+float decodeDepthFromRGB_8(vec3 rgb) {
+    return 255. * rgb.r * 256. + 255. * rgb.g;
 }
 void main() {
     vec2 texCoord = gl_FragCoord.xy / u_resolution;
@@ -25,9 +28,9 @@ void main() {
     float z = 0.;
     for (int i = 0; i < ITERATIONS; i++) {
         if (use_rgb_8 == 1) {
-            z = z * 0.01 + decodeDepthFromRGB_8(floatColor.rgba);
+            z = z * 0.01 + decodeDepthFromRGB_8(floatColor.rgb);
         } else {
-            z = z * 0.01 + decodeDepthFromRGBA_4_4_4_4(floatColor.rgba);
+            z = z * 0.01 + decodeDepthFromRGB_5_6_5(floatColor.rgb);
         }
     }
     gl_FragColor = vec4(z, z, z, 1);
@@ -136,14 +139,14 @@ function getDepthValue() {
 }
 
 // buffer is Uint16Array
-function newDepthRGBA_4_4_4_4(buffer) {
+function newDepthUint16Array(buffer) {
     for (var i = 0; i < height * width; ++i) {
         buffer[i] = getDepthValue();
     }
 }
 
 // buffer is Uint8Array
-function newDepthDataRGB_8(buffer) {
+function newDepthDataUint8Array(buffer) {
     for (var i = 0; i < height * width; ++i) {
         var d = getDepthValue();
         buffer[i * 3] = d & 0xFF;
@@ -152,7 +155,7 @@ function newDepthDataRGB_8(buffer) {
 }
 
 function uploadRGB_8() {
-    newDepthDataRGB_8(rgb_buffer);
+    newDepthDataUint8Array(rgb_buffer);
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGB, 
         width, height, 0, gl.RGB, gl.UNSIGNED_BYTE, 
@@ -161,10 +164,19 @@ function uploadRGB_8() {
 }
 
 function uploadRGBA_4_4_4_4() {
-    newDepthRGBA_4_4_4_4(dexels);
+    newDepthUint16Array(dexels);
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGBA, 
         width, height, 0, gl.RGBA, gl.UNSIGNED_SHORT_4_4_4_4, 
+        dexels);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+};
+
+function uploadRGB_5_6_5() {
+    newDepthUint16Array(dexels);
+    gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGB,
+        width, height, 0, gl.RGB, gl.UNSIGNED_SHORT_5_6_5,
         dexels);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 };
@@ -179,7 +191,7 @@ function tick() {
     if (use_rgb_8 == 1) {
         uploadRGB_8();
     } else {
-        uploadRGBA_4_4_4_4();
+        uploadRGB_5_6_5();
     }
     requestAnimationFrame(tick);
     if(!lastCalledTime) {
